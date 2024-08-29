@@ -37,9 +37,26 @@ for instance_id in instance_ids:
     ami_id = response['ImageId']
     print(f"Created AMI with id {ami_id} for instance {instance_id}")
 
-# Add tags to the AMI
-response = ec2_client.create_tags(Resources=[ami_id], Tags=[{'Key': 'Name', 'Value': name_tag}])    
+    # Add tags to the AMI
+    response = ec2_client.create_tags(Resources=[ami_id], Tags=[{'Key': 'Name', 'Value': name_tag}])    
 
+    # Delete the old unsed AMIs which are older than 30 days from the date of AMI creation
+    ami_creation_date = datetime.strptime(response['CreationDate'], '%Y-%m-%dT%H:%M:%S.%fZ')
+    ami_age = datetime.now() - ami_creation_date
+    if ami_age > timedelta(days=30):
+        response = ec2_client.describe_images(ImageIds=[ami_id])
+        if len(response['Images'][0]['BlockDeviceMappings']) == 0:
+            response = ec2_client.deregister_image(ImageId=ami_id)
+            print(f"Deleted AMI with id {ami_id}")
+        else:
+            print(f"AMI with id {ami_id} is in use and cannot be deleted.")
+
+# Publish SNS notification
+try:
+    topic_arn = os.environ['SNS_TOPIC_ARN']
+    sns_client.publish(TopicArn=topic_arn, Message="AMI creation process completed successfully and deleted AMIs.")
+except Exception as e:
+     print(f"Error publishing message to SNS topic: {e}")    
 
 
 
